@@ -1,0 +1,48 @@
+name: Validate RFM pipeline
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/**'
+      - 'tests/**'
+      - 'notebooks/**'
+      - 'requirements.txt'
+      - '.github/workflows/rfm-tests.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/**'
+      - 'tests/**'
+      - 'notebooks/**'
+      - 'requirements.txt'
+      - '.github/workflows/rfm-tests.yml'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install minimal dependencies
+        run: python -m pip install --upgrade duckdb pandas
+      - name: Test RFM receipt aggregation
+        run: python -m unittest discover -s tests -v
+      - name: Validate notebook JSON and captured RFM results
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          path = Path("notebooks/RetailHero_AB_Uplift_RFM_executed.ipynb")
+          notebook = json.loads(path.read_text(encoding="utf-8"))
+          cells = notebook["cells"]
+          assert not any(
+              output.get("output_type") == "error"
+              for cell in cells if cell["cell_type"] == "code"
+              for output in cell.get("outputs", [])
+          )
+          text = json.dumps(notebook, ensure_ascii=False)
+          assert "Bootstrap 95% ДИ: [+1.129; +5.922]" in text
+          print("Notebook valid; recorded CI found.")
+          PY
