@@ -32,7 +32,7 @@ def build(input_path: str, output_path: str, memory_limit: str = "4GB") -> None:
     db.execute(f"SET memory_limit='{memory_limit}'")
     tmp_dir = target.parent / "duckdb_tmp"
     tmp_dir.mkdir(parents=True, exist_ok=True)
-    db.execute("SET temp_directory=?", [str(tmp_dir)])
+    db.execute("SET temp_directory='" + str(tmp_dir).replace("'", "''") + "'")
 
     print("Aggregating receipt lines (purchases file is pre-campaign by dataset definition)...")
     db.execute("""
