@@ -26,7 +26,7 @@ jobs:
         with:
           python-version: '3.11'
       - name: Install minimal dependencies
-        run: python -m pip install --upgrade duckdb pandas
+        run: python -m pip install --upgrade duckdb pandas numpy scikit-learn
       - name: Test RFM receipt aggregation
         run: python -m unittest discover -s tests -v
       - name: Validate notebook JSON and captured RFM results
