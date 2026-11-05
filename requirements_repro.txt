@@ -1,0 +1,6 @@
+# Verified pipeline environment (Python 3.12.14, 2026-11-05)
+numpy==2.3.5
+pandas==2.2.3
+scipy==1.17.0
+scikit-learn==1.8.0
+duckdb==2.0.0

@@ -6,8 +6,9 @@ treatment and post-communication binary target. The actual SMS timestamp is NOT
 provided. Recency is measured relative to the last timestamp in the supplied
 history, not an invented campaign date.
 
-The source has one row per transaction PRODUCT LINE. Hence a receipt is aggregated
-from all its product lines before calculating client-level spend or check count.
+The source has one row per transaction PRODUCT LINE, but ``purchase_sum`` is
+the TOTAL receipt amount repeated on every line. Validate receipt consistency,
+then count that amount exactly once per (client_id, transaction_id).
 
 DuckDB processes the large gzip file using bounded memory / temporary disk and
 does not assume any order of client_id in the CSV.
@@ -15,10 +16,22 @@ does not assume any order of client_id in the CSV.
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
 from pathlib import Path
 from datetime import timedelta
 
 import duckdb
+
+FEATURE_VERSION = "retailhero_receipt_total_once_v2"
+
+
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def build(input_path: str, output_path: str, memory_limit: str = "4GB") -> None:
@@ -34,24 +47,43 @@ def build(input_path: str, output_path: str, memory_limit: str = "4GB") -> None:
     tmp_dir.mkdir(parents=True, exist_ok=True)
     db.execute("SET temp_directory='" + str(tmp_dir).replace("'", "''") + "'")
 
-    print("Aggregating receipt lines (purchases file is pre-campaign by dataset definition)...")
+    print("Validating and deduplicating receipt lines (pre-campaign history)...")
     db.execute("""
         CREATE TEMP TABLE receipts AS
         SELECT
             client_id,
             transaction_id,
             MIN(TRY_CAST(transaction_datetime AS TIMESTAMP)) AS purchase_time,
-            SUM(TRY_CAST(purchase_sum AS DOUBLE)) AS receipt_sum
+            MIN(TRY_CAST(purchase_sum AS DOUBLE)) AS receipt_sum,
+            COUNT(DISTINCT TRY_CAST(transaction_datetime AS TIMESTAMP)) AS distinct_times,
+            COUNT(DISTINCT TRY_CAST(purchase_sum AS DOUBLE)) AS distinct_amounts,
+            COUNT(DISTINCT store_id) AS distinct_stores,
+            COUNT(*) FILTER (
+                WHERE client_id IS NULL OR TRIM(client_id) = ''
+                   OR transaction_id IS NULL OR TRIM(transaction_id) = ''
+            ) AS bad_keys,
+            COUNT(*) FILTER (
+                WHERE TRY_CAST(transaction_datetime AS TIMESTAMP) IS NULL
+            ) AS bad_dates,
+            COUNT(*) FILTER (
+                WHERE isfinite(TRY_CAST(purchase_sum AS DOUBLE)) IS NOT TRUE
+            ) AS bad_amounts,
+            COUNT(*) FILTER (
+                WHERE store_id IS NULL OR TRIM(store_id) = ''
+            ) AS bad_stores
         FROM read_csv_auto(?, header=true, all_varchar=true)
-        WHERE client_id IS NOT NULL AND transaction_id IS NOT NULL
         GROUP BY client_id, transaction_id
     """, [str(source)])
     invalid = db.execute("""
         SELECT COUNT(*) FROM receipts
-        WHERE purchase_time IS NULL OR receipt_sum IS NULL
+        WHERE bad_keys > 0 OR bad_dates > 0 OR bad_amounts > 0 OR bad_stores > 0
+           OR distinct_times <> 1 OR distinct_amounts <> 1 OR distinct_stores <> 1
     """).fetchone()[0]
     if invalid:
-        raise ValueError(f"{invalid} receipts have invalid date/amount; stop and review source.")
+        raise ValueError(
+            f"{invalid} receipts have missing keys, invalid values or inconsistent "
+            "amount/date/store across product lines; stop and review source."
+        )
 
     first_date, last_date, receipts_n = db.execute("""
         SELECT MIN(purchase_time), MAX(purchase_time), COUNT(*) FROM receipts
@@ -80,6 +112,19 @@ def build(input_path: str, output_path: str, memory_limit: str = "4GB") -> None:
     if not features.client_id.is_unique:
         raise AssertionError("Duplicate client_id in features output")
     features.to_csv(target, index=False)
+    metadata = {
+        "feature_version": FEATURE_VERSION,
+        "source_file": source.name,
+        "source_sha256": sha256_file(source),
+        "output_sha256": sha256_file(target),
+        "receipt_count": receipts_n,
+        "client_count": len(features),
+        "recency_reference": reference.isoformat(),
+        "columns": features.columns.tolist(),
+    }
+    target.with_suffix(".meta.json").write_text(
+        json.dumps(metadata, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
     print(f"Raw history: {first_date} — {last_date}; {receipts_n:,} receipts")
     print(f"Recency reference (proxy, not SMS timestamp): {reference}")
     print(f"Features for {len(features):,} clients -> {target}")

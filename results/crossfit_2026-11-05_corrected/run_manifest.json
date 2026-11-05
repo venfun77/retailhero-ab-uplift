@@ -1,0 +1,76 @@
+{
+  "protocol": "3-fold stratified (treatment,target) OOF, top 10% per fold (ceil)",
+  "seed": 20261030,
+  "folds": 3,
+  "bootstrap_repeats": 2000,
+  "bootstrap_seed": 20261031,
+  "feature_version": "retailhero_receipt_total_once_v2",
+  "feature_columns": [
+    "age_value",
+    "age_unknown",
+    "gender_F",
+    "gender_M",
+    "gender_U",
+    "count",
+    "sum",
+    "mean_check",
+    "recency_days",
+    "active_span_days",
+    "checks_30d",
+    "checks_90d",
+    "spending_90d"
+  ],
+  "rfm_source_sha256": "1342e14e1aa9d39dc242f1b66c903f0576fd184af9dc5a3bbe932607dc2d8aba",
+  "data_sha256": {
+    "uplift_train": "23aced68634c605acb93a7ab450aabac1a0ce0c8104e59ffed9941109ddc4ccd",
+    "clients": "b8985170e03dc65fa532fb6b8ca6dd70ea5c30c35ea7c1019ee6ea2034d04099",
+    "rfm": "eb061c616a6226e35557cf4904a20fc05a6bd30931abec0a5ac5b6f67fce7a65"
+  },
+  "model_iterations": [
+    {
+      "fold": 1,
+      "treatment": 0,
+      "n_iter": 119
+    },
+    {
+      "fold": 1,
+      "treatment": 1,
+      "n_iter": 94
+    },
+    {
+      "fold": 2,
+      "treatment": 0,
+      "n_iter": 91
+    },
+    {
+      "fold": 2,
+      "treatment": 1,
+      "n_iter": 132
+    },
+    {
+      "fold": 3,
+      "treatment": 0,
+      "n_iter": 148
+    },
+    {
+      "fold": 3,
+      "treatment": 1,
+      "n_iter": 119
+    }
+  ],
+  "selected_client_sha256": {
+    "uplift": "917cd4f59ee9be50b3b3ee8851be3d0a9f0e808f07dd32cf37e8df54b7a30dd4",
+    "frequency": "bb05270decfbcb0de0fd64e5bacfd161e2169978202b9a5b0ebbe4a202bcfb48",
+    "monetary": "3ef2487d08ccb0223ff79225f306ab7616de3d5fe530264b70573340414bc337",
+    "recency": "1bb9ecb7481fef494ae2a69135411d11aba0e5d3c131e391ec6856e5f0124753",
+    "rfm_score": "7246a07f05e07fd12cd84e2a593b9f0cfa2b88208b37502017912e6ac5a5667f",
+    "low_spending": "0525de5d8ae07b4b335dd676e2a0a672c1dff68aca42f1a9e02d22e3e13bcc24"
+  },
+  "versions": {
+    "python": "3.12.14",
+    "numpy": "2.3.5",
+    "pandas": "2.2.3",
+    "scikit_learn": "1.8.0"
+  },
+  "low_spending_status": "exploratory; chosen after inspection of historical data"
+}

@@ -1,13 +1,23 @@
 import unittest
 import numpy as np
 import pandas as pd
-from scripts.validate_crossfit import top, crossfit, reports, paired_bootstrap
+from scripts.validate_crossfit import top, crossfit, reports, paired_bootstrap, simple_scores
 
 class TestCrossfit(unittest.TestCase):
     def test_top(self):
         selected=top(np.ones(101))
         self.assertEqual(selected.sum(),11)
         self.assertTrue(selected[:11].all())
+
+    def test_score_ties_use_client_id_not_source_row_order(self):
+        self.assertEqual(top([1,1,1],share=.34,keys=["z","a","b"]).tolist(),
+                         [False,True,True])
+
+    def test_low_spending_orders_smallest_receipt_totals_first(self):
+        d=pd.DataFrame({"count":[1,2,3,4],"sum":[500,50,200,np.nan],
+                        "recency_days":[1,2,3,4]})
+        scores=simple_scores(d)["low_spending"]
+        self.assertEqual(np.argsort(-scores).tolist(),[1,2,0,3])
 
     def test_oof_and_paired_bootstrap(self):
         rng=np.random.default_rng(19)
@@ -25,9 +35,11 @@ class TestCrossfit(unittest.TestCase):
             self.assertEqual(frame.select_uplift.sum(),int(np.ceil(.10*len(frame))))
         summary,folds=reports(oof)
         self.assertIn("monetary",summary.policy.to_list())
+        self.assertIn("low_spending",summary.policy.to_list())
         ci=paired_bootstrap(oof,repeats=200)
         self.assertIn("uplift_vs_random",ci.comparison.to_list())
         self.assertIn("uplift_vs_monetary",ci.comparison.to_list())
+        self.assertIn("uplift_vs_low_spending",ci.comparison.to_list())
         self.assertTrue((ci.ci95_low_pp<=ci.ci95_high_pp).all())
 
 if __name__=="__main__":unittest.main()

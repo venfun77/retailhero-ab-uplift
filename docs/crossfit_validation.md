@@ -1,24 +1,85 @@
-# 3-fold cross-fitting: independent-of-training client evaluation
+# Cross-fitting RetailHero с исправленными RFM
 
-**Status:** implementation ready. No numeric results from this protocol have been computed on the full RetailHero dataset yet. This is retrospective validation, NOT a new A/B test and NOT a fully untouched test set.
+**Статус на 05.11.2026:** полный пересчёт выполнен по исходным публичным
+данным. Это ретроспективная OOF-проверка, не новая кампания и не независимый
+untouched holdout. Итоги и контрольные файлы:
+[`results/crossfit_2026-11-05_corrected/`](../results/crossfit_2026-11-05_corrected/).
 
-## Predefined comparisons
-- Random 10% of customers: baseline expected uplift equals the ATE in the historical A/B experiment.
-- T-learner: top 10% selected by predicted uplift.
-- Primary simple benchmark: top 10% by **pre-campaign historical spending**.
-- Exploratory comparisons: highest frequency, most recent purchase, and composite RFM rank.
+## Проверка исходных данных
 
-## Protocol
-1. StratifiedKFold with **3** folds, fixed seed **20261030**, strata are historical treatment and binary outcome.
-2. For each fold, fit separate control and treatment HistGradientBoostingClassifier models only on the other two folds; imputation medians fitted inside the training fold.
-3. No customer target is used to train the models scoring that customer. Predictors are age/gender and pre-campaign RFM features; IDs, treatment and target are excluded.
-4. Within each validation fold, select top 10% by model score and by each simple baseline.
-5. Measure the **difference in conversion of treated vs control customers within each selected audience**, not the difference in raw conversion between two different audiences.
-6. Compare uplift-minus-random and uplift-minus-spending, plus descriptive baselines, via a **paired nonparametric bootstrap stratified by fold** (2000 replications). Report 95% percentile intervals and effects separately for each fold.
-7. Freeze model parameters and ranking rules before looking at the new results. Do not claim a robust advantage if interval contains zero or if simple targeting is comparable.
+`purchase_sum` есть полная сумма чека на каждой товарной строке. Скрипт
+`build_rfm_features.py` сначала валидирует постоянство суммы, даты, магазина
+внутри пары `(client_id, transaction_id)` и отсутствие плохих ключей, а затем
+учитывает сумму только один раз. На полных данных: 45 786 568 строк,
+8 045 229 чеков, 400 162 клиентов. Агрегированный CSV сопровождается
+`.meta.json` с версией `retailhero_receipt_total_once_v2`, схемой и SHA-256
+исходного файла. Валидатор не принимает отсутствующую или старую версию.
 
-## Limits
-Although every customer is scored out of fold, the dataset already informed feature/model development in earlier iterations. Cross-fitting does not erase prior adaptive feature selection or provide a genuinely independent final test. The bootstrap resamples clients with scores fixed and does not account for uncertainty due to retraining. A new experiment randomizing customers between targeting *policies* remains the gold-standard confirmation.
+## Протокол
 
-## Reproduce
-Run the new notebook at notebooks/RetailHero_Crossfit_Validation.ipynb. It reuses /content/data/final_stats.csv if available and otherwise builds RFM from the original large purchase history. The output ZIP contains policy_summary.csv, bootstrap_intervals.csv, fold_results.csv and REPORT.md. Actual metrics will be added to README and CV only after the run.
+1. 200 039 клиентов с `treatment_flg` и бинарным `target`; left join по
+   `client_id` с проверкой уникальности.
+2. Три стратифицированных фолда по `(treatment, target)`, seed=20261030.
+3. В каждом обучающем наборе отдельно обучаются модели treatment/control:
+   `SimpleImputer(median)` + `HistGradientBoostingClassifier`
+   (`learning_rate=.05`, `max_depth=4`, `max_iter=250`,
+   `min_samples_leaf=80`, `random_state=42`). Фактические итерации в manifest.
+4. На внешнем фолде вычисляется `P(Y=1|T=1,X)−P(Y=1|T=0,X)` и выбираются
+   `ceil(10% × размер фолда)` клиентов. Ничьи по score разрешаются по `client_id`.
+5. Для каждой политики uplift оценивается как разность конверсий treatment
+   и control внутри выбранной аудитории. Главный baseline — средний эффект
+   коммуникации в эксперименте, ожидаемый для случайного выбора.
+6. Вместе с T-learner оценены простые правила высоких расходов, частоты,
+   давности, комбинированного RFM и **низких расходов**. Последнее правило
+   предложено после изучения данных — исследовательское сравнение.
+7. Парный row-bootstrap в каждом фолде (2 000 повторов, seed=20261031) для
+   преимуществ политик. Он сохраняет пересечения политик, но удерживает
+   обученные модели, скоры и выбранные аудитории фиксированными.
+
+## Результаты
+
+| Политика | Uplift топ-10%, п. п. |
+|---|---:|
+| Случайная | 3,323 |
+| T-learner | 7,263 |
+| Низкие расходы | 7,251 |
+| Высокие расходы | 1,461 |
+| Высокая частота | 0,769 |
+| Недавняя покупка | 2,206 |
+| RFM rank | 0,976 |
+
+T-learner минус random: **+3,940 п. п.**, условный 95% ДИ
+**[+2,707; +5,223]**. T-learner минус низкие расходы:
+**+0,012 п. п.**, условный 95% ДИ **[−1,483; +1,594]**.
+Преимущество ML над правилом низких расходов не доказано; отсутствие
+доказательства различия не означает доказанное равенство.
+
+## Воспроизведение
+
+Запустить из корня репозитория после `pip install -r requirements_repro.txt`
+и скачивания трёх `.csv.gz` в `data/`:
+
+```bash
+python -m unittest discover -s tests -v
+python scripts/build_rfm_features.py --input data/purchases.csv.gz --output data/final_stats.csv --memory-limit 2GB
+python scripts/validate_crossfit.py --ab data/uplift_train.csv.gz --clients data/clients.csv.gz --rfm data/final_stats.csv --output outputs/crossfit --bootstrap 2000
+```
+
+`run_manifest.json` сохраняет seed, версию признаков, SHA-256 всех входов,
+список predictors, число итераций по каждой модели и SHA-256 отсортированных
+выбранных client_id по каждой политике. Он нужен для сравнения новых запусков.
+
+`notebooks/RetailHero_Crossfit_Validation.ipynb` — оболочка для Google Colab,
+которая загружает зафиксированный коммит `7a7891e0e5dd97216cb8ea828fa72cb4ea2ac884`
+с этой реализацией и не подключает RFM без версии `v2`. Источником метрик
+остаются скрипты и сохранённый manifest. Прежние holdout notebooks и
+`RetailHero_crossfit_stability.ipynb` помечены как архивные; они реализуют
+другие протоколы. Числа от 30.10.2026 сохранены отдельно.
+
+## Ограничения
+
+Исходные данные уже использовались при выборе признаков и семейства модели.
+Не известны индивидуальная дата отправки, окна конверсии и полный журнал
+рандомизации. Bootstrap не включает переобучение или адаптивный поиск.
+Достоверное сравнение политик требует заранее зафиксированного дизайна и
+новой аудитории или проспективного A/B.
