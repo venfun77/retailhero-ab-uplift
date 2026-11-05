@@ -70,7 +70,7 @@ python scripts/validate_crossfit.py --ab data/uplift_train.csv.gz --clients data
 выбранных client_id по каждой политике. Он нужен для сравнения новых запусков.
 
 `notebooks/RetailHero_Crossfit_Validation.ipynb` — оболочка для Google Colab,
-которая загружает зафиксированный коммит `023396dd77d95d85dd3800884f3e6d0d1b4e1f2a`
+которая загружает зафиксированный коммит `7a7891e0e5dd97216cb8ea828fa72cb4ea2ac884`
 с этой реализацией и не подключает RFM без версии `v2`. Источником метрик
 остаются скрипты и сохранённый manifest. Прежние holdout notebooks и
 `RetailHero_crossfit_stability.ipynb` помечены как архивные; они реализуют
